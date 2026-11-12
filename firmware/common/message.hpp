@@ -182,6 +182,7 @@ class Message {
         WMBusPacketMessageID = 123,
         VDL2Frame = 124,
         SubGhzChatPacket = 125,
+        ZWavePacket = 126,
         MAX
     };
 
@@ -2299,5 +2300,17 @@ struct WMBusPacketMessage : public Message {
 
     uint16_t length = 0;
     uint8_t data[500] = {0};
+};
+
+// One ITU-T G.9959 (Z-Wave) MPDU from zwave_rx, FCS checked.
+struct ZWavePacketMessage : public Message {
+    static constexpr size_t MAX_LENGTH = 172;
+
+    constexpr ZWavePacketMessage()
+        : Message{ID::ZWavePacket} {}
+
+    uint8_t rate{0};    // 0 = R1 (9.6k), 1 = R2 (40k), 2 = R3 (100k)
+    uint8_t length{0};  // MPDU length including FCS
+    uint8_t data[MAX_LENGTH]{};
 };
 #endif /*__MESSAGE_H__*/

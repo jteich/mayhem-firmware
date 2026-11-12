@@ -1,0 +1,59 @@
+/*
+ * This file is part of PortaPack.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, Inc., 51 Franklin Street,
+ * Boston, MA 02110-1301, USA.
+ */
+
+#include "proc_zwave.hpp"
+#include "portapack_shared_memory.hpp"
+#include "dsp_fir_taps.hpp"
+#include "event_m4.hpp"
+
+#include <cstring>
+
+ZWaveProcessor::ZWaveProcessor() {
+    decim_0.configure(taps_200k_wfm_decim_0.taps);
+    decim_1.configure(taps_200k_wfm_decim_1.taps);
+    demod.configure(demod_fs, 60000);  // headroom for 20-29 kHz deviation plus tuning offset
+    decoder.configure(demod_fs);
+    baseband_thread.start();
+}
+
+void ZWaveProcessor::execute(const buffer_c8_t& buffer) {
+    const auto decim_0_out = decim_0.execute(buffer, dst_buffer);
+    const auto decim_1_out = decim_1.execute(decim_0_out, dst_buffer);
+    feed_channel_stats(decim_1_out);
+
+    const auto f = demod.execute(decim_1_out, fm_buffer);
+    for (size_t i = 0; i < f.count; i++)
+        decoder.execute(f.p[i]);
+}
+
+void ZWaveProcessor::on_packet(void* context, const zwave::Rate rate, const uint8_t* mpdu, const size_t length) {
+    if (length > ZWavePacketMessage::MAX_LENGTH)
+        return;
+    auto& m = static_cast<ZWaveProcessor*>(context)->packet_message;
+    m.rate = static_cast<uint8_t>(rate);
+    m.length = static_cast<uint8_t>(length);
+    memcpy(m.data, mpdu, length);
+    shared_memory.application_queue.push(m);
+}
+
+int main() {
+    EventDispatcher event_dispatcher{std::make_unique<ZWaveProcessor>()};
+    event_dispatcher.run();
+    return 0;
+}

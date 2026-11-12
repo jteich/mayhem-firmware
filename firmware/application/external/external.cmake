@@ -441,6 +441,10 @@ set(EXTCPPSRC
 	external/subghz_chat/main.cpp
 	external/subghz_chat/ui_subghz_chat.cpp
 	external/subghz_chat/chat_crypto.cpp
+	#zwave_rx
+	external/zwave_rx/main.cpp
+	external/zwave_rx/ui_zwave_rx.cpp
+	external/zwave_rx/zwave_frame.cpp
 )
 
 set(EXTAPPLIST
@@ -548,5 +552,6 @@ set(EXTAPPLIST
 	wmbus_rx
 	vdl2_rx
 	subghz_chat
+	zwave_rx
 )
 

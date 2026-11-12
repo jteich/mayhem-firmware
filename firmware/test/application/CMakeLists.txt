@@ -44,7 +44,9 @@ add_executable(application_test EXCLUDE_FROM_ALL
 	${PROJECT_SOURCE_DIR}/test_optional.cpp
 	${PROJECT_SOURCE_DIR}/test_string_format.cpp
 	${PROJECT_SOURCE_DIR}/test_utility.cpp
+	${PROJECT_SOURCE_DIR}/test_zwave_frame.cpp
 
+	${PROJECT_SOURCE_DIR}/../../application/external/zwave_rx/zwave_frame.cpp
 	${PROJECT_SOURCE_DIR}/../../application/file_reader.cpp
 	${PROJECT_SOURCE_DIR}/../../application/freqman_db.cpp
 	${PROJECT_SOURCE_DIR}/../../common/utility.cpp

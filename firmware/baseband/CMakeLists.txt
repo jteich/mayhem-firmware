@@ -895,6 +895,14 @@ set(MODE_CPPSRC
 )
 DeclareTargets(PCHT subghz_chat)
 
+### Z-Wave Rx
+
+set(MODE_CPPSRC
+	proc_zwave.cpp
+	zwave_decoder.cpp
+)
+DeclareTargets(PZWV zwave_rx)
+
 
 set(MODE_CPPSRC
 	sd_over_usb/proc_sd_over_usb.cpp
