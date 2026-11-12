@@ -46,6 +46,7 @@ class ZWaveLog : public Widget {
         Decrypted,
         Encrypted,
         AckOrInfo,
+        BadFcs,
     };
 
     ZWaveLog(Rect parent_rect);
@@ -112,8 +113,8 @@ class ZWaveSettingsView : public View {
         "Use Small Font"};
     Checkbox check_show_hex{
         {UI_POS_X(2), UI_POS_Y(5)},
-        12,
-        "Show Raw Hex"};
+        18,
+        "Raw hex + bad FCS"};
     Checkbox check_s0_key{
         {UI_POS_X(2), UI_POS_Y(7)},
         18,
@@ -182,12 +183,16 @@ class ZWaveRxView : public View {
     Button button_config{{UI_POS_X_RIGHT(6), UI_POS_Y(1), UI_POS_WIDTH(6), UI_POS_HEIGHT(1)}, "Cfg"};
 
     ZWaveLog packet_log{
-        {UI_POS_X(0), UI_POS_Y(2), UI_POS_MAXWIDTH, UI_POS_HEIGHT_REMAINING(2)}};
+        {UI_POS_X(0), UI_POS_Y(3), UI_POS_MAXWIDTH, UI_POS_HEIGHT_REMAINING(3)}};
+
+    // "R1:syncs/bad R2:syncs/bad R3:syncs/bad" - preambles locked / frames that failed the FCS.
+    Text text_stats{{UI_POS_X(0), UI_POS_Y(2), UI_POS_MAXWIDTH, UI_POS_HEIGHT(1)}, "Lk/Bad --"};
 
     void on_channel_changed(int32_t index);
     void refresh_ui();
     void apply_key();
     void on_packet(const ZWavePacketMessage& message);
+    void on_stats(const ZWavePacketMessage& message);
 
     MessageHandlerRegistration message_handler_packet{
         Message::ID::ZWavePacket,

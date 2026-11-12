@@ -52,8 +52,10 @@ class ZWaveProcessor : public BasebandProcessor {
 
     zwave::Decoder decoder{on_packet, this};
     ZWavePacketMessage packet_message{};
+    uint32_t stats_counter{0};
 
-    static void on_packet(void* context, zwave::Rate rate, const uint8_t* mpdu, size_t length);
+    static void on_packet(void* context, zwave::Rate rate, const uint8_t* mpdu, size_t length, bool fcs_ok);
+    void send_stats();
 
     /* NB: Threads should be the last members in the class definition. */
     BasebandThread baseband_thread{baseband_fs, this, baseband::Direction::Receive, false};

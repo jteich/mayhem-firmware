@@ -40,12 +40,34 @@ void ZWaveProcessor::execute(const buffer_c8_t& buffer) {
     const auto f = demod.execute(decim_1_out, fm_buffer);
     for (size_t i = 0; i < f.count; i++)
         decoder.execute(f.p[i]);
+
+    // About twice a second, tell the UI how many preambles were locked and how many frames
+    // failed the FCS, so a weak/garbled link can be told apart from "nothing on the air".
+    stats_counter += f.count;
+    if (stats_counter >= demod_fs / 2) {
+        stats_counter = 0;
+        send_stats();
+    }
 }
 
-void ZWaveProcessor::on_packet(void* context, const zwave::Rate rate, const uint8_t* mpdu, const size_t length) {
+void ZWaveProcessor::send_stats() {
+    ZWavePacketMessage m{};
+    m.type = ZWavePacketMessage::Type::Stats;
+    m.length = 0;
+    for (size_t r = 0; r < 3; r++) {
+        const auto rate = static_cast<zwave::Rate>(r);
+        m.syncs[r] = static_cast<uint16_t>(decoder.syncs(rate));
+        m.bad_fcs[r] = static_cast<uint16_t>(decoder.bad_fcs(rate));
+    }
+    shared_memory.application_queue.push(m);
+}
+
+void ZWaveProcessor::on_packet(void* context, const zwave::Rate rate, const uint8_t* mpdu, const size_t length, const bool fcs_ok) {
     if (length > ZWavePacketMessage::MAX_LENGTH)
         return;
     auto& m = static_cast<ZWaveProcessor*>(context)->packet_message;
+    m.type = ZWavePacketMessage::Type::Packet;
+    m.fcs_ok = fcs_ok;
     m.rate = static_cast<uint8_t>(rate);
     m.length = static_cast<uint8_t>(length);
     memcpy(m.data, mpdu, length);

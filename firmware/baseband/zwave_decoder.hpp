@@ -47,12 +47,16 @@ uint16_t fcs_crc16(const uint8_t* data, size_t length);
 
 class ChannelDecoder {
    public:
-    using PacketHandler = void (*)(void* context, Rate rate, const uint8_t* mpdu, size_t length);
+    // fcs_ok == false: the frame was received completely (length byte plausible) but the FCS
+    // did not match. Reported so the UI can show that *something* was on the air.
+    using PacketHandler = void (*)(void* context, Rate rate, const uint8_t* mpdu, size_t length, bool fcs_ok);
 
     void configure(Rate rate, float sampling_rate, PacketHandler handler, void* context);
     void execute(float sample);
 
     uint32_t packets() const { return packets_; }
+    uint32_t syncs() const { return syncs_; }
+    uint32_t bad_fcs() const { return bad_fcs_; }
 
    private:
     enum class State : uint8_t {
@@ -66,6 +70,9 @@ class ChannelDecoder {
 
     float dc_{0.0f};
     float dc_alpha_{0.01f};
+    float lp_{0.0f};        // lightly smoothed FM sample, used for edge detection and integration
+    float lp_alpha_{0.5f};  // smoothing coefficient
+    float integ_{0.0f};     // integrate-and-dump accumulator over one symbol
     float symbol_phase_{0.0f};
     float symbol_step_{0.1f};
     bool last_level_{false};
@@ -80,6 +87,8 @@ class ChannelDecoder {
     size_t received_{0};
     std::array<uint8_t, MAX_MPDU> buffer_{};
     uint32_t packets_{0};
+    uint32_t syncs_{0};
+    uint32_t bad_fcs_{0};
 
     void reset_state();
     void symbol(uint8_t s);
@@ -96,12 +105,19 @@ class Decoder {
     void configure(float sampling_rate);
     void execute(float sample);
 
+    uint32_t syncs(const Rate rate) const { return channel(rate).syncs(); }
+    uint32_t bad_fcs(const Rate rate) const { return channel(rate).bad_fcs(); }
+
    private:
     PacketHandler handler_;
     void* context_;
     ChannelDecoder r1_{};
     ChannelDecoder r2_{};
     ChannelDecoder r3_{};
+
+    const ChannelDecoder& channel(const Rate rate) const {
+        return rate == Rate::R1_9k6 ? r1_ : (rate == Rate::R2_40k ? r2_ : r3_);
+    }
 };
 
 }  // namespace zwave

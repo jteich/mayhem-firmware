@@ -130,6 +130,7 @@ void ZWaveLog::paint(Painter& painter) {
         const Color color = (e->kind == Kind::Decrypted)   ? Color::green()
                             : (e->kind == Kind::Encrypted) ? Color::yellow()
                             : (e->kind == Kind::AckOrInfo) ? Color::grey()
+                            : (e->kind == Kind::BadFcs)    ? Color::red()
                                                            : s.foreground;
         for (size_t row = rows_of(*e); row-- > 0 && y >= r.top();) {
             if (skip) {
@@ -209,7 +210,7 @@ ZWaveRxView::ZWaveRxView(NavigationView& nav)
     baseband::run_image(portapack::spi_flash::image_tag_zwave_rx);
 
     add_children({&options_channel, &field_rf_amp, &field_lna, &field_vga, &rssi, &channel,
-                  &field_frequency, &text_pkt_count, &button_clear, &button_config, &packet_log});
+                  &field_frequency, &text_pkt_count, &button_clear, &button_config, &text_stats, &packet_log});
 
     field_frequency.set_step(10000);
     log_file_.append(logs_dir / u"ZWAVE.TXT");
@@ -282,7 +283,36 @@ void ZWaveRxView::apply_key() {
     }
 }
 
+void ZWaveRxView::on_stats(const ZWavePacketMessage& message) {
+    std::string s{"Lk/Bad "};
+    for (size_t r = 0; r < 3; r++) {
+        s += "R" + to_string_dec_uint(r + 1) + ":" + to_string_dec_uint(message.syncs[r]) + "/" +
+             to_string_dec_uint(message.bad_fcs[r]) + (r < 2 ? " " : "");
+    }
+    text_stats.set(s);
+}
+
 void ZWaveRxView::on_packet(const ZWavePacketMessage& message) {
+    if (message.type == ZWavePacketMessage::Type::Stats) {
+        on_stats(message);
+        return;
+    }
+
+    if (!message.fcs_ok) {
+        // Frame was on the air but is corrupted: still show it so a weak link is visible.
+        if (!zwave_settings_.show_hex && !zwave_settings_.enable_log)
+            return;
+        std::string bad_hex{};
+        for (size_t i = 0; i < message.length; i++)
+            bad_hex += to_string_hex(message.data[i], 2);
+        const std::string line = std::string{"BAD FCS "} + rate_name(message.rate) + " " + bad_hex;
+        if (zwave_settings_.show_hex)
+            packet_log.add(ZWaveLog::Kind::BadFcs, line);
+        if (zwave_settings_.enable_log)
+            log_file_.write_entry(line);
+        return;
+    }
+
     Frame frame{};
     if (!parse_mpdu(message.data, message.length, message.rate, &keyring_, frame))
         return;

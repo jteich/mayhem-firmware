@@ -29,12 +29,13 @@ constexpr float kSampleRate = 400000.0f;
 
 struct CapturedPacket {
     zwave::Rate rate{};
+    bool fcs_ok{true};
     std::vector<uint8_t> data{};
 };
 
-void on_packet(void* ctx, zwave::Rate rate, const uint8_t* data, size_t len) {
+void on_packet(void* ctx, zwave::Rate rate, const uint8_t* data, size_t len, bool fcs_ok) {
     auto* list = static_cast<std::vector<CapturedPacket>*>(ctx);
-    list->push_back({rate, std::vector<uint8_t>(data, data + len)});
+    list->push_back({rate, fcs_ok, std::vector<uint8_t>(data, data + len)});
 }
 
 void feed_symbols(zwave::Decoder& dec, const std::vector<uint8_t>& chips, float symbol_rate, bool inverted) {
@@ -183,7 +184,39 @@ TEST_CASE("zwave R3 100 kbps NRZ CRC16 decode and bad FCS rejection") {
 
     feed_symbols(dec, chips, 100000.0f, false);
 
-    REQUIRE(captured.size() == 1);
+    // Both frames are reported; only the first one has a valid CRC.
+    REQUIRE(captured.size() == 2);
     CHECK(captured[0].rate == zwave::Rate::R3_100k);
+    CHECK(captured[0].fcs_ok == true);
+    CHECK(captured[0].data == mpdu);
+    CHECK(captured[1].fcs_ok == false);
+    CHECK(captured[1].data == bad_mpdu);
+    CHECK(dec.syncs(zwave::Rate::R3_100k) == 2);
+    CHECK(dec.bad_fcs(zwave::Rate::R3_100k) == 1);
+}
+
+TEST_CASE("zwave decoder tolerates one bit error in the sync pattern") {
+    std::vector<CapturedPacket> captured;
+    zwave::Decoder dec{&on_packet, &captured};
+    dec.configure(kSampleRate);
+
+    std::vector<uint8_t> mpdu = {
+        0xCA, 0xFE, 0xBA, 0xBE, 0x03, 0x41, 0x07, 0x0B, 0x01, 0x00};
+    mpdu.push_back(zwave::fcs_xor8(mpdu.data(), mpdu.size()));
+
+    std::vector<uint8_t> chips;
+    for (int i = 0; i < 12; ++i)
+        append_nrz_byte(chips, 0x55);
+    append_nrz_byte(chips, 0xF0);
+    chips[chips.size() - 20] ^= 1;  // flip one preamble bit shortly before the SOF
+    for (uint8_t b : mpdu)
+        append_nrz_byte(chips, b);
+    append_nrz_byte(chips, 0x00);
+
+    feed_symbols(dec, chips, 40000.0f, false);
+
+    REQUIRE(captured.size() == 1);
+    CHECK(captured[0].rate == zwave::Rate::R2_40k);
+    CHECK(captured[0].fcs_ok == true);
     CHECK(captured[0].data == mpdu);
 }

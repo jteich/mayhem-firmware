@@ -62,11 +62,17 @@ void ChannelDecoder::configure(const Rate rate, const float sampling_rate, Packe
                                                        : 100000.0f;
     symbol_step_ = symbol_rate / sampling_rate;
     dc_alpha_ = 1.0f / (4.0f * sampling_rate / symbol_rate);
+    // Light low-pass (~1/3 symbol) so single noisy samples neither fake edges nor flip bits.
+    lp_alpha_ = (3.0f * symbol_step_ > 1.0f) ? 1.0f : 3.0f * symbol_step_;
+    lp_ = 0.0f;
+    integ_ = 0.0f;
     symbol_phase_ = 0.0f;
     dc_ = 0.0f;
     last_level_ = false;
     shift_ = 0;
     packets_ = 0;
+    syncs_ = 0;
+    bad_fcs_ = 0;
     reset_state();
 }
 
@@ -81,18 +87,28 @@ void ChannelDecoder::reset_state() {
 }
 
 void ChannelDecoder::execute(const float sample) {
+    lp_ += (sample - lp_) * lp_alpha_;
     if (state_ == State::Search)
         dc_ += (sample - dc_) * dc_alpha_;
-    const bool level = sample > dc_;
+
+    const float centered = lp_ - dc_;
+    const bool level = centered > 0.0f;
 
     if (level != last_level_) {
-        symbol_phase_ -= (symbol_phase_ - 0.5f) * PLL_GAIN;
+        // An edge is a symbol boundary: pull the phase towards 0 (== 1) by the shortest way.
+        const float err = (symbol_phase_ > 0.5f) ? symbol_phase_ - 1.0f : symbol_phase_;
+        symbol_phase_ -= err * PLL_GAIN;
         last_level_ = level;
     }
+
+    // Integrate and dump over one symbol (boundary to boundary), then decide on the sign.
+    integ_ += centered;
     symbol_phase_ += symbol_step_;
     if (symbol_phase_ >= 1.0f) {
         symbol_phase_ -= 1.0f;
-        symbol(level ? 1 : 0);
+        const uint8_t s = (integ_ > 0.0f) ? 1 : 0;
+        integ_ = 0.0f;
+        symbol(s);
     }
 }
 
@@ -100,18 +116,26 @@ void ChannelDecoder::symbol(const uint8_t s) {
     shift_ = (shift_ << 1) | s;
 
     if (state_ == State::Search) {
+        // Tolerate one flipped bit in the preamble/SOF pattern: weak or noisy frames are
+        // otherwise lost completely. The length range and the FCS still guard against false locks.
         if (rate_ == Rate::R1_9k6) {
-            if (shift_ == R1_SYNC_NORM || shift_ == R1_SYNC_INV) {
+            const int e_norm = __builtin_popcount(shift_ ^ R1_SYNC_NORM);
+            const int e_inv = __builtin_popcount(shift_ ^ R1_SYNC_INV);
+            if (e_norm <= 1 || e_inv <= 1) {
                 reset_state();
                 state_ = State::Data;
-                inverted_ = (shift_ == R1_SYNC_INV);
+                inverted_ = (e_inv < e_norm);
+                syncs_++;
             }
         } else {
             const uint32_t window = shift_ & 0xFFFFFF;
-            if (window == NRZ_SYNC_NORM || window == NRZ_SYNC_INV) {
+            const int e_norm = __builtin_popcount(window ^ NRZ_SYNC_NORM);
+            const int e_inv = __builtin_popcount(window ^ NRZ_SYNC_INV);
+            if (e_norm <= 1 || e_inv <= 1) {
                 reset_state();
                 state_ = State::Data;
-                inverted_ = (window == NRZ_SYNC_INV);
+                inverted_ = (e_inv < e_norm);
+                syncs_++;
             }
         }
         return;
@@ -160,11 +184,12 @@ void ChannelDecoder::push_bit(const uint8_t b) {
             valid = (fcs_xor8(buffer_.data(), expected_length_ - 1) == buffer_[expected_length_ - 1]);
         }
 
-        if (valid) {
+        if (valid)
             packets_++;
-            if (handler_)
-                handler_(context_, rate_, buffer_.data(), expected_length_);
-        }
+        else
+            bad_fcs_++;
+        if (handler_)
+            handler_(context_, rate_, buffer_.data(), expected_length_, valid);
         reset_state();
     }
 }

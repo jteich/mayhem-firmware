@@ -2306,11 +2306,20 @@ struct WMBusPacketMessage : public Message {
 struct ZWavePacketMessage : public Message {
     static constexpr size_t MAX_LENGTH = 172;
 
+    enum class Type : uint8_t {
+        Packet = 0,  // a received MPDU (see fcs_ok)
+        Stats = 1,   // periodic decoder counters (syncs / bad_fcs), no payload
+    };
+
     constexpr ZWavePacketMessage()
         : Message{ID::ZWavePacket} {}
 
+    Type type{Type::Packet};
+    bool fcs_ok{true};  // false: frame was clocked in completely but its FCS did not match
     uint8_t rate{0};    // 0 = R1 (9.6k), 1 = R2 (40k), 2 = R3 (100k)
     uint8_t length{0};  // MPDU length including FCS
+    uint16_t syncs[3]{};    // Stats: preamble+SOF locks per rate (running, wraps)
+    uint16_t bad_fcs[3]{};  // Stats: complete frames with failed FCS per rate (running, wraps)
     uint8_t data[MAX_LENGTH]{};
 };
 #endif /*__MESSAGE_H__*/
